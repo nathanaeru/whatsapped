@@ -71,6 +71,12 @@ fn navigation_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::env::set_var(
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+        "--disable-features=IntensiveWakeUpThrottling \
+         --js-flags=\"--expose-gc --max-semi-space-size=1 --target-globals-low-memory\"",
+    );
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
@@ -201,6 +207,10 @@ pub fn run() {
             // Hide to Tray instead of quitting when hitting "X"
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
+                if let Some(webview_window) = window.app_handle().get_webview_window(window.label())
+                {
+                    let _ = webview_window.eval("if (window.gc) { window.gc(); }");
+                }
                 api.prevent_close();
             }
         })
