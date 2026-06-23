@@ -4,8 +4,9 @@ use tauri::{
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Manager, Runtime, WindowEvent,
 };
+use tauri_plugin_opener::OpenerExt;
 
-// Our custom plugin to route WhatsApp web notifications to the native OS
+// Custom plugin to route WhatsApp web notifications to the native OS
 fn notification_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
     let script = r#"
         function triggerTauriNotification(title, msgOptions) {
@@ -42,9 +43,31 @@ fn notification_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
+// Custom plugin to intercept link clicks and route external links to the OS browser
+fn navigation_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
+    PluginBuilder::<R>::new("navigation-hijack")
+        .on_navigation(|webview, url| {
+            let host = url.host_str().unwrap_or("");
+            
+            // Allow internal WhatsApp routing, local files, and Tauri protocols
+            if host.contains("whatsapp.com") 
+                || host.contains("whatsapp.net") 
+                || url.scheme() == "tauri" 
+                || host.is_empty() 
+            {
+                true // Allow the webview to load the page
+            } else {
+                // It's an external link! Route it to the OS default browser
+                let _ = webview.app_handle().opener().open_url(url.as_str(), None::<&str>);
+                false // Block the webview from navigating away from WhatsApp
+            }
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
 
     #[cfg(desktop)]
     {
@@ -64,6 +87,8 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_notification::init()) //  Enable Native Notifications
         .plugin(notification_hijack_plugin()) //  Inject our Hijacker
+        .plugin(tauri_plugin_opener::init()) //  Enable External Link Opening
+        .plugin(navigation_hijack_plugin()) //  Inject our Navigation Hijacker
         .setup(|app| {
             // Build the System Tray
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
