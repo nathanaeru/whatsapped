@@ -1,7 +1,13 @@
-# Tauri + Vanilla
+# WhatsApped
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Javascript.
+A WhatsApp Web wrapper for Windows, made with Tauri
 
-## Recommended IDE Setup
+## Features
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- Lightweight.
+- System tray support.
+- Native notification.
+
+## Installation
+
+From Releases page.
