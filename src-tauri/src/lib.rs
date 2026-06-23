@@ -48,17 +48,20 @@ fn navigation_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
     PluginBuilder::<R>::new("navigation-hijack")
         .on_navigation(|webview, url| {
             let host = url.host_str().unwrap_or("");
-            
+
             // Allow internal WhatsApp routing, local files, and Tauri protocols
-            if host.contains("whatsapp.com") 
-                || host.contains("whatsapp.net") 
-                || url.scheme() == "tauri" 
-                || host.is_empty() 
+            if host.contains("whatsapp.com")
+                || host.contains("whatsapp.net")
+                || url.scheme() == "tauri"
+                || host.is_empty()
             {
                 true // Allow the webview to load the page
             } else {
                 // It's an external link! Route it to the OS default browser
-                let _ = webview.app_handle().opener().open_url(url.as_str(), None::<&str>);
+                let _ = webview
+                    .app_handle()
+                    .opener()
+                    .open_url(url.as_str(), None::<&str>);
                 false // Block the webview from navigating away from WhatsApp
             }
         })
@@ -67,21 +70,38 @@ fn navigation_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init());
 
     #[cfg(desktop)]
     {
-        // Enforce Single Instance
-        builder = builder.plugin(tauri_plugin_single_instance::init(
-            |app: &tauri::AppHandle, _args, _cwd| {
-                if let Some(window) = app.get_webview_window("main") {
-                    if !window.is_visible().unwrap_or(false) {
-                        let _ = window.show();
-                    }
-                    let _ = window.set_focus();
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app: &tauri::AppHandle, args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                // Unhide and focus the window
+                if !window.is_visible().unwrap_or(false) {
+                    let _ = window.show();
                 }
-            },
-        ));
+                let _ = window.set_focus();
+
+                // Parse the incoming deep link from the arguments
+                // args contains the launch parameters. Deep links usually appear as the last argument.
+                for arg in args {
+                    if arg.starts_with("whatsapp://") || arg.starts_with("wapped://") {
+                        // WhatsApp web uses web.whatsapp.com for deep linking routing
+                        // We translate the native protocol into the web protocol
+                        let web_url = arg
+                            .replace("whatsapp://", "https://web.whatsapp.com/")
+                            .replace("wapped://", "https://web.whatsapp.com/");
+                        
+                        // Tell the webview to navigate to the new link
+                        let script = format!("window.location.href = '{}';", web_url);
+                        let _ = window.eval(&script);
+                        break;
+                    }
+                }
+            }
+        }));
     }
 
     builder
