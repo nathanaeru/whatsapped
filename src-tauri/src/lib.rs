@@ -107,9 +107,23 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_notification::init()) //  Enable Native Notifications
         .plugin(notification_hijack_plugin()) //  Inject our Hijacker
-        .plugin(tauri_plugin_opener::init()) //  Enable External Link Opening
         .plugin(navigation_hijack_plugin()) //  Inject our Navigation Hijacker
         .setup(|app| {
+            // Handle deep link startup arguments if launched via protocol (first instance)
+            if let Some(window) = app.get_webview_window("main") {
+                for arg in std::env::args().skip(1) {
+                    if arg.starts_with("whatsapp://") || arg.starts_with("wapped://") {
+                        let web_url = arg
+                            .replace("whatsapp://", "https://web.whatsapp.com/")
+                            .replace("wapped://", "https://web.whatsapp.com/");
+                        if let Ok(parsed_url) = tauri::Url::parse(&web_url) {
+                            let _ = window.navigate(parsed_url);
+                        }
+                        break;
+                    }
+                }
+            }
+
             // Build the System Tray
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let show_i = MenuItem::with_id(app, "show", "Show WhatsApp", true, None::<&str>)?;

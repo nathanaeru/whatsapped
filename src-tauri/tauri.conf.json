@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Whatsapped",
+  "productName": "WhatsApped",
   "version": "0.1.2",
   "identifier": "com.naeru.whatsapped",
   "build": {
@@ -22,12 +22,19 @@
   },
   "plugins": {
     "deep-link": {
-      "schemes": ["whatsapp", "wapped"]
+      "desktop": {
+        "schemes": ["whatsapp", "wapped"]
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/installer.nsh"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
