@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "whatsapped",
+  "productName": "Whatsapped",
   "version": "0.1.0",
   "identifier": "com.naeru.whatsapped",
   "build": {
@@ -10,9 +10,10 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "whatsapped",
-        "width": 800,
-        "height": 600
+        "title": "WhatsApp",
+        "width": 1200,
+        "height": 800,
+        "url": "https://web.whatsapp.com"
       }
     ],
     "security": {

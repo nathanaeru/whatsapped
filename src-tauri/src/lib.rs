@@ -1,14 +1,112 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+use tauri::{
+    menu::{Menu, MenuItem},
+    plugin::{Builder as PluginBuilder, TauriPlugin},
+    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+    Manager, Runtime, WindowEvent,
+};
+
+// Our custom plugin to route WhatsApp web notifications to the native OS
+fn notification_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
+    let script = r#"
+        function triggerTauriNotification(title, msgOptions) {
+            try {
+                if (window.__TAURI__ && window.__TAURI__.core) {
+                    window.__TAURI__.core.invoke("plugin:notification|notify", {
+                        options: { // <-- Wrapped in options!
+                            title: title || 'WhatsApp',
+                            body: msgOptions ? msgOptions.body : ''
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to trigger native notification", e);
+            }
+        }
+
+        window.Notification = class Notification {
+            constructor(title, options) { triggerTauriNotification(title, options); }
+            static requestPermission() { return Promise.resolve('granted'); }
+            static get permission() { return 'granted'; }
+        };
+
+        if (window.ServiceWorkerRegistration) {
+            window.ServiceWorkerRegistration.prototype.showNotification = function(title, options) {
+                triggerTauriNotification(title, options);
+                return Promise.resolve();
+            };
+        }
+    "#;
+
+    PluginBuilder::<R>::new("notification-hijack")
+        .js_init_script(script.to_string())
+        .build()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        // Enforce Single Instance
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app: &tauri::AppHandle, _args, _cwd| {
+                if let Some(window) = app.get_webview_window("main") {
+                    if !window.is_visible().unwrap_or(false) {
+                        let _ = window.show();
+                    }
+                    let _ = window.set_focus();
+                }
+            },
+        ));
+    }
+
+    builder
+        .plugin(tauri_plugin_notification::init()) //  Enable Native Notifications
+        .plugin(notification_hijack_plugin()) //  Inject our Hijacker
+        .setup(|app| {
+            // Build the System Tray
+            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "Show WhatsApp", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // Restrict window focusing strictly to Left Clicks
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Hide to Tray instead of quitting when hitting "X"
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
