@@ -1,9 +1,10 @@
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem},
     plugin::{Builder as PluginBuilder, TauriPlugin},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Manager, Runtime, WindowEvent,
 };
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 // Custom plugin to route WhatsApp web notifications to the native OS
@@ -72,36 +73,42 @@ fn navigation_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
 pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ));
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app: &tauri::AppHandle, args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                // Unhide and focus the window
-                if !window.is_visible().unwrap_or(false) {
-                    let _ = window.show();
-                }
-                let _ = window.set_focus();
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app: &tauri::AppHandle, args, _cwd| {
+                if let Some(window) = app.get_webview_window("main") {
+                    // Unhide and focus the window
+                    if !window.is_visible().unwrap_or(false) {
+                        let _ = window.show();
+                    }
+                    let _ = window.set_focus();
 
-                // Parse the incoming deep link from the arguments
-                // args contains the launch parameters. Deep links usually appear as the last argument.
-                for arg in args {
-                    if arg.starts_with("whatsapp://") || arg.starts_with("wapped://") {
-                        // WhatsApp web uses web.whatsapp.com for deep linking routing
-                        // We translate the native protocol into the web protocol
-                        let web_url = arg
-                            .replace("whatsapp://", "https://web.whatsapp.com/")
-                            .replace("wapped://", "https://web.whatsapp.com/");
-                        
-                        // Tell the webview to navigate to the new link
-                        let script = format!("window.location.href = '{}';", web_url);
-                        let _ = window.eval(&script);
-                        break;
+                    // Parse the incoming deep link from the arguments
+                    // args contains the launch parameters. Deep links usually appear as the last argument.
+                    for arg in args {
+                        if arg.starts_with("whatsapp://") || arg.starts_with("wapped://") {
+                            // WhatsApp web uses web.whatsapp.com for deep linking routing
+                            // We translate the native protocol into the web protocol
+                            let web_url = arg
+                                .replace("whatsapp://", "https://web.whatsapp.com/")
+                                .replace("wapped://", "https://web.whatsapp.com/");
+
+                            // Tell the webview to navigate to the new link
+                            let script = format!("window.location.href = '{}';", web_url);
+                            let _ = window.eval(&script);
+                            break;
+                        }
                     }
                 }
-            }
-        }));
+            },
+        ));
     }
 
     builder
@@ -124,20 +131,51 @@ pub fn run() {
                 }
             }
 
+            let autostart_manager = app.autolaunch();
+            let is_start_enabled = autostart_manager.is_enabled().unwrap_or(false);
+
             // Build the System Tray
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let show_i = MenuItem::with_id(app, "show", "Show WhatsApp", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            let show_i = MenuItem::with_id(app, "show", "Show app window", true, None::<&str>)?;
+
+            // Create the "Open on startup" checkbox item
+            let startup_i = CheckMenuItem::with_id(
+                app,
+                "toggle_startup",
+                "Open on startup",
+                true,
+                is_start_enabled,
+                None::<&str>,
+            )?;
+
+            let menu = Menu::with_items(app, &[&show_i, &startup_i, &quit_i])?;
+
+            let menu_handle = menu.clone();
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "quit" => app.exit(0),
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
+                        }
+                    }
+                    "toggle_startup" => {
+                        // Directly pattern match on the Check variant of the MenuItemKind enum
+                        if let Some(tauri::menu::MenuItemKind::Check(item)) =
+                            menu_handle.get("toggle_startup")
+                        {
+                            let is_checked = item.is_checked().unwrap_or(false);
+                            let am = app.autolaunch();
+
+                            if is_checked {
+                                let _ = am.enable();
+                            } else {
+                                let _ = am.disable();
+                            }
                         }
                     }
                     _ => {}
