@@ -5,6 +5,7 @@ use tauri::{
     Manager, Runtime, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 // Custom plugin to route WhatsApp web notifications to the native OS
@@ -78,11 +79,12 @@ pub fn run() {
     );
 
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec![]),
+            Some(vec!["--minimized"]),
         ));
 
     #[cfg(desktop)]
@@ -135,6 +137,50 @@ pub fn run() {
                         break;
                     }
                 }
+            }
+
+            // Manually build the window from config to attach the Download Handler
+            let handle = app.handle();
+            let config = app.config().app.windows.get(0).unwrap().clone();
+
+            let window = tauri::webview::WebviewWindowBuilder::from_config(handle, &config)?
+                .on_download(|webview, event| {
+                    if let tauri::webview::DownloadEvent::Requested { destination, .. } = event {
+                        // Extract the original filename suggested by WhatsApp
+                        let suggested_name = destination
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned();
+
+                        // Spawn a native, blocking "Save As" dialog
+                        let file_path = webview
+                            .app_handle()
+                            .dialog()
+                            .file()
+                            .set_file_name(suggested_name)
+                            .blocking_save_file();
+
+                        if let Some(path) = file_path {
+                            if let Ok(p) = path.into_path() {
+                                // Update the destination to the path the user selected
+                                *destination = p;
+                                return true; // Allow the download to proceed
+                            }
+                        }
+                        return false; // Cancel download if the user closed the dialog
+                    }
+                    true // Allow all other download events to pass
+                })
+                .build()?;
+
+            // Check if the application was launched with the "--minimized" argument
+            let args: Vec<String> = std::env::args().collect();
+            let start_minimized = args.iter().any(|arg| arg == "--minimized");
+
+            // Show the main window ONLY if we did NOT launch via autostart minimized
+            if !start_minimized {
+                let _ = window.show();
             }
 
             let autostart_manager = app.autolaunch();

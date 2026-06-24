@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WhatsApped",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "com.naeru.whatsapped",
   "build": {
     "frontendDist": "../src"
@@ -13,7 +13,9 @@
         "title": "WhatsApped",
         "width": 1200,
         "height": 800,
-        "url": "https://web.whatsapp.com"
+        "url": "https://web.whatsapp.com",
+        "visible": false,
+        "create": false
       }
     ],
     "security": {
