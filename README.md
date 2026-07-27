@@ -10,7 +10,7 @@ A lightweight, high-performance WhatsApp Web client wrapper for Windows, enginee
 - **System Tray Integration:** Minimize to tray seamlessly on closing (`X`), keeping your taskbar clean while staying active in the background. Also it can be set to open on startup.
 - **Native Notifications:** Fully hooked into the Windows Action Center for native system flyout banners.
 - **Smart Link Routing:** Internal WhatsApp links and deep-links route natively inside the app, while external web links securely bounce out to your system's default browser.
-- **Deep Linking Protocol Support:** Registers `whatsapp://` and `wapped://` schemes at the OS level to automatically catch chat intents from your default web browsers.
+- **Deep Linking Protocol Support:** Registers `whatsapp://` schemes at the OS level to automatically catch chat intents from your default web browsers.
 
 ## Installation
 
