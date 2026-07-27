@@ -144,6 +144,7 @@ pub fn run() {
             let config = app.config().app.windows.get(0).unwrap().clone();
 
             let window = tauri::webview::WebviewWindowBuilder::from_config(handle, &config)?
+                .disable_drag_drop_handler()
                 .on_download(|webview, event| {
                     if let tauri::webview::DownloadEvent::Requested { destination, .. } = event {
                         // Extract the original filename suggested by WhatsApp
