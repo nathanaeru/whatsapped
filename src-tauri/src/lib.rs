@@ -101,12 +101,10 @@ pub fn run() {
                     // Parse the incoming deep link from the arguments
                     // args contains the launch parameters. Deep links usually appear as the last argument.
                     for arg in args {
-                        if arg.starts_with("whatsapp://") || arg.starts_with("wapped://") {
+                        if arg.starts_with("whatsapp://") {
                             // WhatsApp web uses web.whatsapp.com for deep linking routing
                             // We translate the native protocol into the web protocol
-                            let web_url = arg
-                                .replace("whatsapp://", "https://web.whatsapp.com/")
-                                .replace("wapped://", "https://web.whatsapp.com/");
+                            let web_url = arg.replace("whatsapp://", "https://web.whatsapp.com/");
 
                             // Tell the webview to navigate to the new link
                             let script = format!("window.location.href = '{}';", web_url);
@@ -127,10 +125,8 @@ pub fn run() {
             // Handle deep link startup arguments if launched via protocol (first instance)
             if let Some(window) = app.get_webview_window("main") {
                 for arg in std::env::args().skip(1) {
-                    if arg.starts_with("whatsapp://") || arg.starts_with("wapped://") {
-                        let web_url = arg
-                            .replace("whatsapp://", "https://web.whatsapp.com/")
-                            .replace("wapped://", "https://web.whatsapp.com/");
+                    if arg.starts_with("whatsapp://") {
+                        let web_url = arg.replace("whatsapp://", "https://web.whatsapp.com/");
                         if let Ok(parsed_url) = tauri::Url::parse(&web_url) {
                             let _ = window.navigate(parsed_url);
                         }
