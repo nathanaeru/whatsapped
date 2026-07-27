@@ -2,6 +2,8 @@
 
 A lightweight, high-performance WhatsApp Web client wrapper for Windows, engineered using Rust and the Tauri v2 framework.
 
+> DISCLAIMER: This project is unofficial and not affiliated with WhatsApp or Meta. This app only loads a webview of `web.whatsapp.com` inside a WebView window.
+
 ## Features
 
 - **Ultra-Lightweight:** Consumes significantly less memory and resources compared to the official electron-based desktop client.
