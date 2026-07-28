@@ -4582,8 +4582,9 @@ dependencies = [
 
 [[package]]
 name = "whatsapped"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "tauri",

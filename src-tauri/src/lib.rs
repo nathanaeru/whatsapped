@@ -1,3 +1,5 @@
+use base64::Engine;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     plugin::{Builder as PluginBuilder, TauriPlugin},
@@ -6,30 +8,162 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_notification::{Attachment, NotificationExt};
 use tauri_plugin_opener::OpenerExt;
+
+static AVATAR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn cleanup_old_avatars() {
+    let temp_dir = std::env::temp_dir().join("whatsapped_avatars");
+    if let Ok(entries) = std::fs::read_dir(temp_dir) {
+        let now = std::time::SystemTime::now();
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    if now.duration_since(modified).unwrap_or_default().as_secs() > 300 {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn send_whatsapp_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    icon_data: Option<String>,
+) -> Result<(), String> {
+    let mut icon_path: Option<std::path::PathBuf> = None;
+
+    if let Some(ref data) = icon_data {
+        if !data.is_empty() {
+            let base64_str = if let Some(comma_pos) = data.find(',') {
+                &data[comma_pos + 1..]
+            } else {
+                data.as_str()
+            };
+
+            if let Ok(image_bytes) = base64::engine::general_purpose::STANDARD.decode(base64_str) {
+                let temp_dir = std::env::temp_dir().join("whatsapped_avatars");
+                let _ = std::fs::create_dir_all(&temp_dir);
+
+                let id = AVATAR_COUNTER.fetch_add(1, Ordering::SeqCst);
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                let filename = format!("avatar_{}_{}.jpg", timestamp, id);
+                let file_path = temp_dir.join(filename);
+
+                if std::fs::write(&file_path, image_bytes).is_ok() {
+                    icon_path = Some(file_path);
+                }
+            }
+        }
+    }
+
+    let mut builder = app.notification().builder().title(title).body(body);
+
+    if let Some(path) = &icon_path {
+        let path_str = path.to_string_lossy().to_string();
+        builder = builder.icon(&path_str);
+
+        if let Ok(url) = tauri::Url::from_file_path(path) {
+            builder = builder.attachment(Attachment::new("avatar", url));
+        }
+    }
+
+    builder.show().map_err(|e| e.to_string())?;
+
+    if icon_path.is_some() {
+        std::thread::spawn(|| {
+            cleanup_old_avatars();
+        });
+    }
+
+    Ok(())
+}
 
 // Custom plugin to route WhatsApp web notifications to the native OS
 fn notification_hijack_plugin<R: Runtime>() -> TauriPlugin<R> {
     let script = r#"
-        function triggerTauriNotification(title, msgOptions) {
+        function getNotificationIcon(options) {
+            if (!options) return undefined;
+            var url = options.icon || options.image || (options.data && (options.data.icon || options.data.image || options.data.avatar));
+            if (url && typeof url === 'string') {
+                return url;
+            }
+            return undefined;
+        }
+
+        async function fetchIconAsBase64(url) {
+            if (!url || typeof url !== 'string') return null;
+            if (url.startsWith('data:image/')) return url;
             try {
-                if (window.__TAURI__ && window.__TAURI__.core) {
-                    window.__TAURI__.core.invoke("plugin:notification|notify", {
-                        options: { // <-- Wrapped in options!
-                            title: title || 'WhatsApp',
-                            body: msgOptions ? msgOptions.body : ''
-                        }
-                    });
-                }
+                const response = await fetch(url);
+                const blob = await response.blob();
+                return await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(blob);
+                });
             } catch (e) {
-                console.error("Failed to trigger native notification", e);
+                console.error("[WhatsApped] Failed to fetch icon blob:", e);
+                return null;
             }
         }
 
-        window.Notification = class Notification {
-            constructor(title, options) { triggerTauriNotification(title, options); }
+        async function triggerTauriNotification(title, options) {
+            try {
+                const safeTitle = title || 'WhatsApp';
+                const safeBody = options ? (options.body || '') : '';
+                const iconUrl = getNotificationIcon(options);
+
+                let iconBase64 = null;
+                if (iconUrl) {
+                    iconBase64 = await fetchIconAsBase64(iconUrl);
+                }
+
+                if (window.__TAURI__ && window.__TAURI__.core) {
+                    window.__TAURI__.core.invoke("send_whatsapp_notification", {
+                        title: safeTitle,
+                        body: safeBody,
+                        iconData: iconBase64
+                    }).catch(function(err) {
+                        console.warn("[WhatsApped] send_whatsapp_notification failed, retrying without icon:", err);
+                        window.__TAURI__.core.invoke("send_whatsapp_notification", {
+                            title: safeTitle,
+                            body: safeBody,
+                            iconData: null
+                        }).catch(function(e) {
+                            console.error("[WhatsApped] Notification invocation fallback failed:", e);
+                        });
+                    });
+                }
+            } catch (e) {
+                console.error("[WhatsApped] Failed to trigger native notification", e);
+            }
+        }
+
+        window.Notification = class Notification extends EventTarget {
+            constructor(title, options) {
+                super();
+                this.title = title || 'WhatsApp';
+                this.body = options ? (options.body || '') : '';
+                this.icon = options ? (options.icon || '') : '';
+                this.image = options ? (options.image || '') : '';
+                this.tag = options ? (options.tag || '') : '';
+                this.data = options ? (options.data || null) : null;
+                triggerTauriNotification(title, options);
+            }
+            close() {}
             static requestPermission() { return Promise.resolve('granted'); }
             static get permission() { return 'granted'; }
+            static get maxActions() { return 2; }
         };
 
         if (window.ServiceWorkerRegistration) {
@@ -79,6 +213,7 @@ pub fn run() {
     );
 
     let mut builder = tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![send_whatsapp_notification])
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())

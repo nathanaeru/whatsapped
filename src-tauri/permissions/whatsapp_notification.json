@@ -1,0 +1,19 @@
+{
+  "default": {
+    "description": "Default permissions",
+    "permissions": [
+      "allow-whatsapp-notification"
+    ]
+  },
+  "permission": [
+    {
+      "identifier": "allow-whatsapp-notification",
+      "description": "Enables send_whatsapp_notification command",
+      "commands": {
+        "allow": [
+          "send_whatsapp_notification"
+        ]
+      }
+    }
+  ]
+}
